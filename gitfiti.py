@@ -320,19 +320,14 @@ def calculate_multiplier(max_commits):
     return m
 
 
-def get_start_date():
-    """returns a datetime object for the first sunday after one year ago today
-    at 12:00 noon"""
+def get_default_date():
+    """returns a datetime object from one year ago, at 12:00 noon"""
     today = datetime.today()
-    date = datetime(today.year - 1, today.month, today.day, 12)
-    weekday = datetime.weekday(date)
+    return datetime(today.year - 1, today.month, today.day, 12)
 
-    while weekday < 6:
-        date = date + timedelta(1)
-        weekday = datetime.weekday(date)
-
-    return date
-
+def calculate_next_sunday(date):
+    """returns a datetime object for the first sunday after the input date"""
+    return date + timedelta(6 - datetime.weekday(date))
 
 def generate_next_dates(start_date, offset=0):
     """generator that returns the next date, requires a datetime object as
@@ -342,24 +337,25 @@ def generate_next_dates(start_date, offset=0):
         yield start_date + timedelta(i)
 
 
-def generate_values_in_date_order(image, multiplier=1):
+def generate_values_in_date_order(image, repeat=1, multiplier=1):
     height = 7
     width = len(image[0])
 
-    for w in range(width):
-        for h in range(height):
-            yield image[h][w] * multiplier
+    for r in range(repeat):
+        for w in range(width):
+            for h in range(height):
+                yield image[h][w] * multiplier
 
 
 def commit(commitdate, shell):
     template_bash = (
         '''GIT_AUTHOR_DATE={0} GIT_COMMITTER_DATE={1} '''
-        '''git commit --allow-empty -m "gitfiti" > /dev/null\n'''
+        '''git commit --allow-empty -m "Keivan's gitArt commit" > /dev/null\n'''
     )
     
     template_powershell = (
         '''$Env:GIT_AUTHOR_DATE="{0}"\n$Env:GIT_COMMITTER_DATE="{1}"\n'''
-        '''git commit --allow-empty -m "gitfiti" | Out-Null\n'''
+        '''git commit --allow-empty -m "Keivan's gitArt commit" | Out-Null\n'''
     )
 
     template = template_bash if shell == 'bash' else template_powershell
@@ -367,7 +363,7 @@ def commit(commitdate, shell):
     return template.format(commitdate.isoformat(), commitdate.isoformat())
 
 
-def fake_it(image, start_date, username, repo, git_url, shell, offset=0, multiplier=1):
+def fake_it(image, start_date, username, repo, git_url, shell, offset=0, multiplier=1, repeat=1):
     template_bash = (
         '#!/usr/bin/env bash\n'
         'REPO={0}\n'
@@ -403,7 +399,7 @@ def fake_it(image, start_date, username, repo, git_url, shell, offset=0, multipl
     template = template_bash if shell == 'bash' else template_powershell
 
     strings = []
-    for value, date in zip(generate_values_in_date_order(image, multiplier),
+    for value, date in zip(generate_values_in_date_order(image, repeat=repeat, multiplier=multiplier),
             generate_next_dates(start_date, offset)):
         for _ in range(value):
             strings.append(commit(date, shell))
@@ -481,7 +477,19 @@ def main():
         except:
             image = IMAGES[image_name_fallback]
 
-    start_date = get_start_date()
+    print('Enter the origin date (blank to start today, one year ago)')
+    try:
+        input_date = datetime.strptime(
+            request_user_input('yyyy-mm-dd: '),
+            '%Y-%m-%d')
+    except ValueError:
+        input_date = get_default_date()
+    start_date = calculate_next_sunday(input_date)
+
+    repeat = request_user_input(
+        'Enter the number of times to repeat the image:')
+    repeat = int(repeat) if repeat.strip() else 1
+
     fake_it_multiplier = m * match
 
     if not ghe:
@@ -495,7 +503,7 @@ def main():
             'Enter the target shell ({}): '.format(' or '.join(SHELLS.keys())))
 
     output = fake_it(image, start_date, username, repo, git_url, shell, offset,
-                     fake_it_multiplier)
+                     fake_it_multiplier, repeat)
 
     output_filename = 'gitfiti.{}'.format(SHELLS[shell])
     save(output, output_filename)
